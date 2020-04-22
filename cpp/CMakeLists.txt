@@ -17,7 +17,7 @@
 
 cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 
-project(CUGRAPH VERSION 0.8.0 LANGUAGES C CXX CUDA)
+project(CUGRAPH VERSION 0.14.0 LANGUAGES C CXX CUDA)
 
 ###################################################################################################
 # - build type ------------------------------------------------------------------------------------
@@ -46,7 +46,7 @@ set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 if(CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wno-error=deprecated-declarations")
 
 ###################################################################################################
 ###   C++ ABI changes.
@@ -75,8 +75,13 @@ endif(CMAKE_COMPILER_IS_GNUCXX)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_60,code=sm_60")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_70,code=compute_70")
 
+find_package(CUDA)
+if((CUDA_VERSION_MAJOR EQUAL 10) OR (CUDA_VERSION_MAJOR GREATER 10))
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_75,code=compute_75")
+endif()
+
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-extended-lambda")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Werror cross-execution-space-call -Wno-deprecated-declarations -Xptxas --disable-warnings")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Werror=cross-execution-space-call -Wno-deprecated-declarations -Xptxas --disable-warnings")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -Wall,-Wno-error=sign-compare,-Wno-error=unused-but-set-variable")
 
 # Option to enable line info in CUDA device compilation to allow introspection when profiling /
@@ -94,10 +99,18 @@ endif(CMAKE_BUILD_TYPE MATCHES Debug)
 
 # To apply RUNPATH to transitive dependencies (this is a temporary solution)
 set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--disable-new-dtags")
+set(CMAKE_EXE_LINKER_FLAGS "-Wl,--disable-new-dtags")
 
 option(BUILD_TESTS "Configure CMake to build tests"
        ON)
 
+option(BUILD_MPI "Build with MPI" OFF)
+if (BUILD_MPI)
+    find_package(MPI REQUIRED)
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${MPI_C_COMPILE_FLAGS}")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MPI_CXX_COMPILE_FLAGS}")
+    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${MPI_CXX_LINK_FLAGS}")
+endif(BUILD_MPI)
 ###################################################################################################
 # - cmake modules ---------------------------------------------------------------------------------
 
@@ -109,20 +122,6 @@ include(CheckLibraryExists)
 if(BUILD_TESTS)
     include(CTest)
 endif(BUILD_TESTS)
-
-###################################################################################################
-# - gunrock ---------------------------------------------------------------------------------------
-
-find_package(Git QUIET)
-if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/gunrock/")
-    execute_process(COMMAND ${GIT_EXECUTABLE} log  -1 --pretty=format:"%ad" --date=format:%Y%m%d%H%M%S OUTPUT_VARIABLE LATEST_COMMIT_DATE WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/gunrock/")
-    set(REQUIRED_COMMIT_DATE "\"20190528081356\"")
-    if(NOT ${REQUIRED_COMMIT_DATE} STREQUAL ${LATEST_COMMIT_DATE})
-        message(FATAL_ERROR "${CMAKE_CURRENT_BINARY_DIR}/gunrock is incompatible with cuGraph, please delete the gunrock directory and re-execute cmake.")
-    endif()
-else()
-    execute_process(COMMAND ${GIT_EXECUTABLE} clone -b v0.5.1 --single-branch --recursive  https://github.com/gunrock/gunrock "${CMAKE_CURRENT_BINARY_DIR}/gunrock/")
-endif()
 
 ###################################################################################################
 # - find boost ------------------------------------------------------------------------------------
@@ -144,6 +143,20 @@ if(OpenMP_FOUND)
 endif(OpenMP_FOUND)
 
 ###################################################################################################
+# - find libcypher-parser -------------------------------------------------------------------------
+
+find_path(LIBCYPHERPARSER_INCLUDE "cypher-parser.h"
+          HINTS "$ENV{CONDA_PREFIX}/include")
+
+find_library(LIBCYPHERPARSER_LIBRARY STATIC "libcypher-parser.a"
+             HINTS "$ENV{CONDA_PREFIX}/lib")
+
+add_library(libcypher-parser STATIC IMPORTED ${LIBCYPHERPARSER_LIBRARY})
+if (LIBCYPHERPARSER_INCLUDE AND LIBCYPHERPARSER_LIBRARY)
+    set_target_properties(libcypher-parser PROPERTIES IMPORTED_LOCATION ${LIBCYPHERPARSER_LIBRARY})
+endif (LIBCYPHERPARSER_INCLUDE AND LIBCYPHERPARSER_LIBRARY)
+
+###################################################################################################
 # - find gtest ------------------------------------------------------------------------------------
 
 if(BUILD_TESTS)
@@ -157,7 +170,6 @@ if(BUILD_TESTS)
             "Google C++ Testing Framework (Google Test) not found: automated tests are disabled.")
     endif(GTEST_FOUND)
 endif(BUILD_TESTS)
-
 
 ###################################################################################################
 # - NVStrings -------------------------------------------------------------------------------------
@@ -244,6 +256,69 @@ if (RMM_INCLUDE AND RMM_LIBRARY)
 endif (RMM_INCLUDE AND RMM_LIBRARY)
 
 ###################################################################################################
+# - External Projects -----------------------------------------------------------------------------
+
+# https://cmake.org/cmake/help/v3.0/module/ExternalProject.html
+include(ExternalProject)
+
+# - CUB
+set(CUB_DIR ${CMAKE_CURRENT_BINARY_DIR}/cub CACHE STRING "Path to cub repo")
+set(CUB_INCLUDE_DIR ${CUB_DIR}/src/cub CACHE STRING "Path to cub includes")
+
+ExternalProject_Add(cub
+  GIT_REPOSITORY    https://github.com/NVlabs/cub.git
+  GIT_TAG           v1.8.0
+  PREFIX            ${CUB_DIR}
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND     ""
+  INSTALL_COMMAND   ""
+)
+
+# - CUHORNET
+set(CUHORNET_DIR ${CMAKE_CURRENT_BINARY_DIR}/cuhornet CACHE STRING "Path to cuhornet repo")
+set(CUHORNET_INCLUDE_DIR ${CUHORNET_DIR}/src/cuhornet CACHE STRING "Path to cuhornet includes")
+
+
+ExternalProject_Add(cuhornet
+  GIT_REPOSITORY    https://github.com/rapidsai/cuhornet.git
+  GIT_TAG           master
+  PREFIX            ${CUHORNET_DIR}
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND     ""
+  INSTALL_COMMAND   ""
+)
+
+# - GUNROCK
+set(CUGUNROCK_DIR ${CMAKE_CURRENT_BINARY_DIR}/cugunrock CACHE STRING
+  "Path to cugunrock repo")
+
+ExternalProject_Add(cugunrock
+  GIT_REPOSITORY    https://github.com/rapidsai/cugunrock.git
+  GIT_TAG           fea_full_bc      # provide a branch, a tag, or even a commit hash
+  PREFIX            ${CUGUNROCK_DIR}
+  CMAKE_ARGS        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+                    -DGPU_ARCHS=""
+                    -DGUNROCK_BUILD_SHARED_LIBS=OFF
+                    -DGUNROCK_BUILD_TESTS=OFF
+  BUILD_BYPRODUCTS  ${CUGUNROCK_DIR}/lib/libgunrock.a
+)
+
+add_library(gunrock STATIC IMPORTED)
+
+add_dependencies(gunrock cugunrock)
+
+set_property(TARGET gunrock PROPERTY IMPORTED_LOCATION ${CUGUNROCK_DIR}/lib/libgunrock.a)
+
+# - NCCL
+if(NOT NCCL_PATH)
+    find_package(NCCL REQUIRED)
+else()
+    message("-- Manually set NCCL PATH to ${NCCL_PATH}")
+    set(NCCL_INCLUDE_DIRS ${NCCL_PATH}/include)
+    set(NCCL_LIBRARIES ${NCCL_PATH}/lib/libnccl.so)
+endif(NOT NCCL_PATH)
+
+###################################################################################################
 # - library targets -------------------------------------------------------------------------------
 
 # target_link_directories is added in cmake 3.13, and cmake advises to use this instead of
@@ -255,10 +330,13 @@ link_directories(
     "${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES}")
 
 add_library(cugraph SHARED
-    src/utilities/grmat.cu
-    src/utilities/degree.cu
+    src/ktruss/ktruss.cu
+    src/db/db_object.cu
+    src/db/db_parser_integration_test.cu
+    src/db/db_operators.cu
     src/utilities/cusparse_helper.cu
     src/structure/cugraph.cu
+    src/structure/graph.cu
     src/link_analysis/pagerank.cu
     src/traversal/bfs.cu
     src/traversal/sssp.cu
@@ -266,13 +344,19 @@ add_library(cugraph SHARED
     src/link_prediction/overlap.cu
     src/converters/nvgraph.cu
     src/converters/renumber.cu
+    src/converters/COOtoCSR.cu
     src/community/nvgraph_gdf.cu
+    src/community/ECG.cu
+    src/cores/core_number.cu
     src/traversal/two_hop_neighbors.cu
     src/snmg/blas/spmv.cu
     src/snmg/link_analysis/pagerank.cu
     src/utilities/cusparse_helper.cu
+    src/utilities/graph_utils.cu
     src/snmg/utils.cu
     src/components/connectivity.cu
+    src/centrality/katz_centrality.cu
+    src/centrality/betweenness_centrality.cu
     src/snmg/degree/degree.cu
     src/snmg/COO2CSR/COO2CSR.cu
     src/nvgraph/arnoldi.cu
@@ -305,28 +389,33 @@ add_library(cugraph SHARED
     src/nvgraph/triangles_counting_kernels.cu
     src/nvgraph/valued_csr_graph.cpp
     src/nvgraph/widest_path.cu
-    ${CMAKE_CURRENT_BINARY_DIR}/gunrock/gunrock/util/test_utils.cu
-    ${CMAKE_CURRENT_BINARY_DIR}/gunrock/gunrock/util/error_utils.cu
-    ${CMAKE_CURRENT_BINARY_DIR}/gunrock/gunrock/util/misc_utils.cu
-    ${CMAKE_CURRENT_BINARY_DIR}/gunrock/externals/moderngpu/src/mgpucontext.cu
-    ${CMAKE_CURRENT_BINARY_DIR}/gunrock/externals/moderngpu/src/mgpuutil.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/gunrock/gunrock/util/gitsha1.c
 )
+
+#
+# NOTE:  This dependency will force the building of cugraph to
+#        wait until after cugunrock is constructed.
+#
+add_dependencies(cugraph cugunrock)
 
 ###################################################################################################
 # - include paths ---------------------------------------------------------------------------------
-
 target_include_directories(cugraph
     PRIVATE
     "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
+    "${LIBCYPHERPARSER_INCLUDE}"
     "${Boost_INCLUDE_DIRS}"
     "${RMM_INCLUDE}"
     "${CUDF_INCLUDE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/cub"
+    "${CUB_INCLUDE_DIR}"
+    "${CUHORNET_INCLUDE_DIR}/hornet/include"
+    "${CUHORNET_INCLUDE_DIR}/hornetsnest/include"
+    "${CUHORNET_INCLUDE_DIR}/xlib/include"
+    "${CUHORNET_INCLUDE_DIR}/primitives"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_BINARY_DIR}/gunrock/"
-    "${CMAKE_CURRENT_BINARY_DIR}/gunrock/externals/moderngpu/include"
+    "${CUGUNROCK_DIR}/include"
+    "${NCCL_INCLUDE_DIRS}"
+    "${MPI_CXX_INCLUDE_PATH}"
     PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
@@ -335,7 +424,7 @@ target_include_directories(cugraph
 # - link libraries --------------------------------------------------------------------------------
 
 target_link_libraries(cugraph PRIVATE
-    ${CUDF_LIBRARY} ${RMM_LIBRARY} ${NVSTRINGS_LIBRARY} cublas cusparse curand cusolver cudart cuda)
+    ${CUDF_LIBRARY} ${RMM_LIBRARY} gunrock ${NVSTRINGS_LIBRARY} cublas cusparse curand cusolver cudart cuda ${LIBCYPHERPARSER_LIBRARY} ${MPI_CXX_LIBRARIES} ${NCCL_LIBRARIES})
 if(OpenMP_CXX_FOUND)
 target_link_libraries(cugraph PRIVATE
 ###################################################################################################
@@ -396,7 +485,7 @@ if(BUILD_TESTS)
         # link_directoires (we should switch to target_link_directories once 3.13 becomes the
         # minimum required version).
         link_directories(${GTEST_LIBRARY_DIR})
-        add_subdirectory(${CMAKE_SOURCE_DIR}/src/tests)
+        add_subdirectory(${CMAKE_SOURCE_DIR}/tests)
     endif(GTEST_FOUND)
 endif(BUILD_TESTS)
 

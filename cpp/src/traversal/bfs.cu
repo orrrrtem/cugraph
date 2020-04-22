@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -16,17 +16,20 @@
 #include <limits>
 #include "rmm_utils.h"
 
+#include "graph.hpp"
+
 #include "utilities/graph_utils.cuh"
 #include "traversal_common.cuh"
 #include "bfs_kernels.cuh"
 
 namespace cugraph {
+namespace detail {
   enum BFS_ALGO_STATE {
     TOPDOWN, BOTTOMUP
   };
 
   template<typename IndexType>
-  void Bfs<IndexType>::setup() {
+  void BFS<IndexType>::setup() {
 
     // Determinism flag, false by default
     deterministic = false;
@@ -103,7 +106,7 @@ namespace cugraph {
   }
 
   template<typename IndexType>
-  void Bfs<IndexType>::configure(IndexType *_distances,
+  void BFS<IndexType>::configure(IndexType *_distances,
                                  IndexType *_predecessors,
                                  int *_edge_mask)
   {
@@ -121,7 +124,7 @@ namespace cugraph {
   }
 
   template<typename IndexType>
-  void Bfs<IndexType>::traverse(IndexType source_vertex) {
+  void BFS<IndexType>::traverse(IndexType source_vertex) {
 
     //Init visited_bmap
     //If the graph is undirected, we not that
@@ -249,7 +252,7 @@ namespace cugraph {
     //undirected g : need parents to be in children's neighbors
     bool can_use_bottom_up = !directed && distances;
 
-    while (nf > 0) {
+    while (nf > 0 && nu > 0) {
       //Each vertices can appear only once in the frontierer array - we know it will fit
       new_frontier = frontier + nf;
       IndexType old_nf = nf;
@@ -340,7 +343,7 @@ namespace cugraph {
                           sizeof(IndexType),
                           cudaMemcpyDeviceToHost,
                           stream);
-          cudaCheckError();
+          CUDA_CHECK_LAST();
 
           //We need nf
           cudaStreamSynchronize(stream);
@@ -404,7 +407,7 @@ namespace cugraph {
                             sizeof(IndexType),
                             cudaMemcpyDeviceToHost,
                             stream);
-            cudaCheckError()
+            CUDA_CHECK_LAST()
             //We need last_left_unvisited_size
             cudaStreamSynchronize(stream);
 	    bfs_kernels::bottom_up_large(left_unvisited_queue,
@@ -426,7 +429,7 @@ namespace cugraph {
                           sizeof(IndexType),
                           cudaMemcpyDeviceToHost,
                           stream);
-          cudaCheckError()
+          CUDA_CHECK_LAST()
 
           //We will need nf
           cudaStreamSynchronize(stream);
@@ -445,12 +448,12 @@ namespace cugraph {
   }
 
   template<typename IndexType>
-  void Bfs<IndexType>::resetDevicePointers() {
+  void BFS<IndexType>::resetDevicePointers() {
     cudaMemsetAsync(d_counters_pad, 0, 4 * sizeof(IndexType), stream);
   }
 
   template<typename IndexType>
-  void Bfs<IndexType>::clean() {
+  void BFS<IndexType>::clean() {
     //the vectors have a destructor that takes care of cleaning
     ALLOC_FREE_TRY(original_frontier, nullptr);
     ALLOC_FREE_TRY(visited_bmap, nullptr);
@@ -467,31 +470,34 @@ namespace cugraph {
       ALLOC_FREE_TRY(distances, nullptr);
   }
 
-  template class Bfs<int> ;
-} // end namespace cugraph
+  template class BFS<int> ;
+} // !namespace cugraph::detail
 
-gdf_error gdf_bfs(gdf_graph *graph, gdf_column *distances, gdf_column *predecessors, int start_vertex, bool directed) {
-  GDF_REQUIRE(graph->adjList != nullptr || graph->edgeList != nullptr, GDF_INVALID_API_CALL);
-  gdf_error err = gdf_add_adj_list(graph);
-  if (err != GDF_SUCCESS)
-    return err;
-  GDF_REQUIRE(graph->adjList->offsets->dtype == GDF_INT32, GDF_UNSUPPORTED_DTYPE);
-  GDF_REQUIRE(graph->adjList->indices->dtype == GDF_INT32, GDF_UNSUPPORTED_DTYPE);
-  GDF_REQUIRE(distances->dtype == GDF_INT32, GDF_UNSUPPORTED_DTYPE);
-  GDF_REQUIRE(predecessors->dtype == GDF_INT32, GDF_UNSUPPORTED_DTYPE);
+template <typename VT, typename ET, typename WT>
+void bfs(experimental::GraphCSR<VT, ET, WT> const &graph, VT *distances, VT *predecessors, const VT start_vertex, bool directed) {
+  CUGRAPH_EXPECTS(typeid(VT) == typeid(int),
+                  "Unsupported vertex id data type, please use int");
+  CUGRAPH_EXPECTS(typeid(ET) == typeid(int),
+                  "Unsupported edge id data type, please use int");
+  CUGRAPH_EXPECTS((typeid(WT) == typeid(float)) || (typeid(WT) == typeid(double)),
+                  "Unsupported weight data type, please use float or double");
 
-  int n = graph->adjList->offsets->size - 1;
-  int e = graph->adjList->indices->size;
-  int* offsets_ptr = (int*)graph->adjList->offsets->data;
-  int* indices_ptr = (int*)graph->adjList->indices->data;
-  int* distances_ptr = (int*)distances->data;
-  int* predecessors_ptr = (int*)predecessors->data;
+  VT number_of_vertices = graph.number_of_vertices;
+  ET number_of_edges = graph.number_of_edges;
+
+  const VT* indices_ptr = graph.indices;
+  const ET* offsets_ptr = graph.offsets;
+
   int alpha = 15;
   int beta = 18;
-
-  cugraph::Bfs<int> bfs(n, e, offsets_ptr, indices_ptr, directed, alpha, beta);
-  bfs.configure(distances_ptr, predecessors_ptr, nullptr);
+  //FIXME: Use VT and ET in the BFS detail
+  cugraph::detail::BFS<VT> bfs(number_of_vertices, number_of_edges,
+                               offsets_ptr, indices_ptr, directed, alpha,
+                               beta);
+  bfs.configure(distances, predecessors, nullptr);
   bfs.traverse(start_vertex);
-  return GDF_SUCCESS;
 }
 
+template void bfs<int, int, float>(experimental::GraphCSR<int, int, float> const &graph, int *distances, int *predecessors, const int source_vertex, bool directed);
+
+} // !namespace cugraph

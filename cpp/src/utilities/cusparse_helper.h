@@ -18,17 +18,15 @@
 #include "rmm_utils.h"
 #include "utilities/graph_utils.cuh"
 
-namespace cugraph
-{
+namespace cugraph { 
+namespace detail {
 
 #define CHECK_CUSPARSE(call)                                              \
 {                                                                         \
     cusparseStatus_t _e = (call);                                         \
     if (_e != CUSPARSE_STATUS_SUCCESS)                                    \
     {                                                                     \
-        std::stringstream _error;                                         \
-        _error << "CUSPARSE failure: '#" << _e << "'";                    \
-        throw std::string(_error.str());                                  \
+      CUGRAPH_FAIL("CUSPARSE ERROR");                                     \
     }                                                                     \
 }
 
@@ -96,4 +94,4 @@ class CusparseCsrMV
              ValueType* y);
 };
 
-} //namespace
+} } //namespace

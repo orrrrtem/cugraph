@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, NVIDIA CORPORATION.
+ * Copyright (c) 2019-2020, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,9 +32,9 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 
-#include "utilities/error_utils.h"
-
 #include <rmm_utils.h>
+
+#include <functions.hpp>
 
 template <typename T>
 struct CSR_Result {
@@ -69,7 +69,7 @@ __global__ void offsetsKernel(T runCounts, T* unique, T* counts, T* offsets) {
 
 // Method for constructing CSR from COO
 template <typename T>
-gdf_error ConvertCOOtoCSR(T* sources, T* destinations, int64_t nnz, CSR_Result<T>& result) {
+void ConvertCOOtoCSR(T const* sources, T const* destinations, int64_t nnz, CSR_Result<T>& result) {
     // Sort source and destination columns by source
     //   Allocate local memory for operating on
     T* srcs{nullptr}, *dests{nullptr};
@@ -143,12 +143,12 @@ gdf_error ConvertCOOtoCSR(T* sources, T* destinations, int64_t nnz, CSR_Result<T
     ALLOC_FREE_TRY(unique, stream);
     ALLOC_FREE_TRY(counts, stream);
     ALLOC_FREE_TRY(runCount, stream);
-    return GDF_SUCCESS;
+    
 }
 
 // Method for constructing CSR from COO
 template <typename T, typename W>
-gdf_error ConvertCOOtoCSR_weighted(T* sources, T* destinations, W* edgeWeights, int64_t nnz, CSR_Result_Weighted<T, W>& result) {
+void ConvertCOOtoCSR_weighted(T const * sources, T const * destinations, W const * edgeWeights, int64_t nnz, CSR_Result_Weighted<T, W>& result) {
     // Sort source and destination columns by source
     //   Allocate local memory for operating on
     T* srcs{nullptr};
@@ -220,5 +220,5 @@ gdf_error ConvertCOOtoCSR_weighted(T* sources, T* destinations, W* edgeWeights, 
     ALLOC_FREE_TRY(unique, stream);
     ALLOC_FREE_TRY(counts, stream);
     ALLOC_FREE_TRY(runCount, stream);
-    return GDF_SUCCESS;
 }
+

@@ -1,48 +1,87 @@
-# Copyright (c) 2018, NVIDIA CORPORATION.
+# Copyright (c) 2018-2019, NVIDIA CORPORATION.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-from distutils.sysconfig import get_python_lib
 import os
 import sys
+import shutil
 
-from setuptools import setup
+from setuptools import setup, find_packages
 from setuptools.extension import Extension
-from Cython.Build import cythonize
-import numpy
+
+try:
+    from Cython.Distutils.build_ext import new_build_ext as build_ext
+except ImportError:
+    from setuptools.command.build_ext import build_ext
+
 import versioneer
+from distutils.sysconfig import get_python_lib
 
 
 INSTALL_REQUIRES = ['numba', 'cython']
 
-
-try:
-    NUMPY_INCLUDE = numpy.get_include()
-except AttributeError:
-    NUMPY_INCLUDE = numpy.get_numpy_include()
-
+conda_lib_dir = os.path.normpath(sys.prefix) + '/lib'
 conda_include_dir = os.path.normpath(sys.prefix) + '/include'
-CYTHON_FILES = ['cugraph/*.pyx']
+
+CYTHON_FILES = ['cugraph/**/*.pyx']
+
+CUDA_HOME = os.environ.get("CUDA_HOME", False)
+if not CUDA_HOME:
+    path_to_cuda_gdb = shutil.which("cuda-gdb")
+    if path_to_cuda_gdb is None:
+        raise OSError(
+            "Could not locate CUDA. "
+            "Please set the environment variable "
+            "CUDA_HOME to the path to the CUDA installation "
+            "and try again."
+        )
+    CUDA_HOME = os.path.dirname(os.path.dirname(path_to_cuda_gdb))
+
+if not os.path.isdir(CUDA_HOME):
+    raise OSError(
+        f"Invalid CUDA_HOME: " "directory does not exist: {CUDA_HOME}"
+    )
+
+cuda_include_dir = os.path.join(CUDA_HOME, "include")
 
 if (os.environ.get('CONDA_PREFIX', None)):
     conda_prefix = os.environ.get('CONDA_PREFIX')
     conda_include_dir = conda_prefix + '/include'
     conda_lib_dir = conda_prefix + '/lib'
 
+cmdclass = dict()
+cmdclass.update(versioneer.get_cmdclass())
+cmdclass["build_ext"] = build_ext
+
 EXTENSIONS = [
-    Extension("cugraph",
+    Extension("*",
               sources=CYTHON_FILES,
-              include_dirs=[NUMPY_INCLUDE,
-                            conda_include_dir,
-                            '../cpp/src',
+              include_dirs=[conda_include_dir,
                             '../cpp/include',
-                            '../cpp/build/gunrock',
-                            '../cpp/build/gunrock/externals/moderngpu/include',
-                            '../cpp/build/gunrock/externals/cub'],
+                            "../thirdparty/cub",
+                            os.path.join(
+                                conda_include_dir, "libcudf", "libcudacxx"),
+                            cuda_include_dir],
               library_dirs=[get_python_lib()],
               runtime_library_dirs=[conda_lib_dir],
-              libraries=['cugraph', 'cudf'],
+              libraries=['cugraph', 'cudf', 'nccl'],
               language='c++',
               extra_compile_args=['-std=c++14'])
 ]
+
+for e in EXTENSIONS:
+    e.cython_directives = dict(
+        profile=False, language_level=3, embedsignature=True
+    )
 
 setup(name='cugraph',
       description="cuGraph - GPU Graph Analytics",
@@ -58,8 +97,9 @@ setup(name='cugraph',
       # Include the separately-compiled shared library
       author="NVIDIA Corporation",
       setup_requires=['cython'],
-      ext_modules=cythonize(EXTENSIONS),
+      ext_modules=EXTENSIONS,
+      packages=find_packages(include=['cugraph', 'cugraph.*']),
       install_requires=INSTALL_REQUIRES,
       license="Apache",
-      cmdclass=versioneer.get_cmdclass(),
+      cmdclass=cmdclass,
       zip_safe=False)

@@ -1,66 +1,90 @@
 # <div align="left"><img src="img/rapids_logo.png" width="90px"/>&nbsp;cuGraph - GPU Graph Analytics</div>
 
-The [RAPIDS](https://rapids.ai) cuGraph library is a collection of graph analytics that process data found in GPU Dataframes - see [cuDF](https://github.com/rapidsai/cudf).  cuGraph aims to provide a NetworkX-like API that will be familiar to data scientists, so they can now build GPU-accelerated workflows more easily.
+[![Build Status](https://gpuci.gpuopenanalytics.com/job/rapidsai/job/gpuci/job/cugraph/job/branches/job/cugraph-branch-pipeline/badge/icon)](https://gpuci.gpuopenanalytics.com/job/rapidsai/job/gpuci/job/cugraph/job/branches/job/cugraph-branch-pipeline/)
+
+The [RAPIDS](https://rapids.ai) cuGraph library is a collection of GPU accelerated graph algorithms that process data found in [GPU DataFrames](https://github.com/rapidsai/cudf).  The vision of cuGraph is _to make graph analysis ubiquitous to the point that users just think in terms of analysis and not technologies or frameworks_.  To realize that vision, cuGraph operators, at the Python layer, on GPU DataFrames, allowing for seamless passing of data between ETL tasks in [cuDF](https://github.com/rapidsai/cudf) and machine learning tasks in [cuML](https://github.com/rapidsai/cuml).  Data scientist familiar with Python will quickly pick up how cuGraph integrates with the Pandas-like API of cuDF.  Likewise, user familiar with NetworkX will quickly reconnize the NetworkX-like API provided in cuGraph, with the goal being to allow existing code to be ported with minimal effort into RAPIDS.  For users familar with C/CUDA and graph structures, a C++ API is also provided.  However, there is less type and structure checking at the C layer.  
 
  For more project details, see [rapids.ai](https://rapids.ai/).
 
-**NOTE:** For the latest stable [README.md](https://github.com/rapidsai/cudf/blob/master/README.md) ensure you are on the `master` branch.
+**NOTE:** For the latest stable [README.md](https://github.com/rapidsai/cudf/blob/master/README.md) ensure you are on the latest branch.
 
 
 
 ```markdown
 import cugraph
 
-# assuming that data has been loaded into a cuDF (using read_csv) Dataframe
+# read data into a cuDF DataFrame using read_csv
+gdf = cudf.read_csv("graph_data.csv", names=["src", "dst"], dtype=["int32", "int32"] )
+
+# We now have data as edge pairs
 # create a Graph using the source (src) and destination (dst) vertex pairs the GDF  
 G = cugraph.Graph()
-G.add_edge_list(gdf["src"], gdf["dst"])
+G.from_cudf_edgelist(gdf, source='src', destination='dst')
 
-# Call cugraph.pagerank to get the pagerank scores
+# Let's now get the PageRank score of each vertex by calling cugraph.pagerank
 gdf_page = cugraph.pagerank(G)
 
+# Let's look at the PageRank Score (only do this on small graphs)
 for i in range(len(gdf_page)):
 	print("vertex " + str(gdf_page['vertex'][i]) + 
 		" PageRank is " + str(gdf_page['pagerank'][i]))  
 ```
 
 
+## Supported Algorithms
 
-## Supported Algorithms:
+| Category     | Algorithm                              | Sacle        |  Notes
+| ------------ | -------------------------------------- | ------------ | ------------------- |
+| Centrality   |                                        |              |                     |
+|              | Katz                                   | Single-GPU   |                     |
+|              | Betweenness Centrality                 | Single-GPU   |                     |
+| Community    |                                        |              |                     |
+|              | Louvain                                | Single-GPU   |                     |
+|              | Ensemble Clustering for Graphs         | Single-GPU   |                     |
+|              | Spectral-Clustering - Balanced Cut     | Single-GPU   |                     |
+|              | Spectral-Clustering                    | Single-GPU   |                     |
+|              | Subgraph Extraction                    | Single-GPU   |                     |
+|              | Triangle Counting                      | Single-GPU   |                     |
+| Components   |                                        |              |                     |
+|              | Weakly Connected Components            | Single-GPU   |                     |
+|              | Strongly Connected Components          | Single-GPU   |                     |
+| Core         |                                        |              |                     |
+|              | K-Core                                 | Single-GPU   |                     |
+|              | Core Number                            | Single-GPU   |                     |
+|              | K-Truss                                | Single-GPU   |                     |
+| Link Analysis|                                        |              |                     |
+|              | Pagerank                               | Single-GPU   |  Multi-GPU on DGX avaible  |
+|              | Personal Pagerank                      | Single-GPU   |                     |
+| Link Prediction |                                     |              |                     |
+|              | Jacard Similarity                      | Single-GPU   |                     |
+|              | Weighted Jacard Similarity             | Single-GPU   |                     |
+|              | Overlap Similarity                     | Single-GPU   |                     |
+| Traversal    |                                        |              |                     |
+|              | Breadth First Search (BFS)             | Single-GPU   |                     |
+|              | Single Source Shortest Path (SSSP)     | Single-GPU   |                     |
+| Structure    |                                        |              |                     |
+|              | Renumbering                            | Single-GPU   | Also for multiple columns  |
+|              | Symmetrize                             | Single-GPU   |                     |
 
-| Algorithm                                     | Scale      | Notes                        |
-| :-------------------------------------------- | ---------- | ---------------------------- |
-| PageRank                                      | Single-GPU |                              |
-| Personal PageRank                             | Single-GPU |                              |
-| Jaccard Similarity                            | Single-GPU |                              |
-| Weighted Jaccard                              | Single-GPU |                              |
-| Overlap Similarity                            | Single-GPU |                              |
-| SSSP                                          | Single-GPU | Updated to provide path info |
-| BSF                                           | Single-GPU |                              |
-| Triangle Counting                             | Single-GPU |                              |
-| Subgraph Extraction                           | Single-GPU |                              |
-| Spectral Clustering - Balanced-Cut            | Single-GPU |                              |
-| Spectral Clustering - Modularity Maximization | Single-GPU |                              |
-| Louvain                                       | Single-GPU |                              |
-| Renumbering                                   | Single-GPU |                              |
-| Basic Graph Statistics                        | Single-GPU |                              |
-| Weakly Connected Components                   | Single-GPU |                              |
+## Supported Graph
+| Type            |  Description                                        |
+| --------------- | --------------------------------------------------- |
+| Graph           | An undirected Graph                                 |
+| DiGraph         | A Directed Graph                                    |
 
 
+## cuGraph Notice
+The current version of cuGraph has some limitations:
 
+- Vertex IDs need to be 32-bit integers.
+- Vertex IDs are expected to be contiguous integers starting from 0.
+--  If the starting index is not zero, cuGraph will add disconnected vertices to fill in the missing range.  (Auto-) Renumbering fixes this issue
 
+cuGraph provides the renumber function to mitigate this problem. Input vertex IDs for the renumber function can be any type, can be non-contiguous, and can start from an arbitrary number. The renumber function maps the provided input vertex IDs to 32-bit contiguous integers starting from 0. cuGraph still requires the renumbered vertex IDs to be representable in 32-bit integers. These limitations are being addressed and will be fixed soon.
 
-## cuGraph 0.8 Notice
+cuGraph provides an auto-renumbering feature, enabled by default, during Graph creating.  Renumbered vertices are automaticaly un-renumbered.
 
-cuGraph version 0.8 has some limitations:
-
-- Only Int32 Vertex ID are supported
-- Only float (FP32) edge data is supported
-- Vertex numbering is assumed to start at zero
-
-These limitations are being addressed and will be fixed soon.
-
-
+cuGraph is constantly being updatred and improved. Please see the [Transition Guide](TRANSITIONGUIDE.md) if errors are encountered with newer versions
 
 
 
@@ -68,60 +92,52 @@ These limitations are being addressed and will be fixed soon.
 ### Intro
 There are 3 ways to get cuGraph :
 1. [Quick start with Docker Demo Repo](#quick)
-1. [Conda Installation](#conda)
-1. [Build from Source](#source)
-
+2. [Conda Installation](#conda)
+3. [Build from Source](#source)
 
 
 <a name="quick"></a>
 
-## Quick Start  
-
+## Quick Start
 Please see the [Demo Docker Repository](https://hub.docker.com/r/rapidsai/rapidsai/), choosing a tag based on the NVIDIA CUDA version you’re running. This provides a ready to run Docker container with example notebooks and data, showcasing how you can utilize all of the RAPIDS libraries: cuDF, cuML, and cuGraph.
 
 
-
 <a name="conda"></a>
-
 ### Conda
-
 It is easy to install cuGraph using conda. You can get a minimal conda installation with [Miniconda](https://conda.io/miniconda.html) or get the full installation with [Anaconda](https://www.anaconda.com/download).
 
 Install and update cuGraph using the conda command:
 
 ```bash
-# CUDA 9.2
-conda install -c nvidia -c rapidsai -c numba -c conda-forge -c defaults cugraph cudatoolkit=9.2
 
 # CUDA 10.0
 conda install -c nvidia -c rapidsai -c numba -c conda-forge -c defaults cugraph cudatoolkit=10.0
+
+# CUDA 10.1
+conda install -c nvidia -c rapidsai -c numba -c conda-forge -c defaults cugraph cudatoolkit=10.1
+
+# CUDA 10.2
+conda install -c nvidia -c rapidsai -c numba -c conda-forge -c defaults cugraph cudatoolkit=10.2
 ```
 
 Note: This conda installation only applies to Linux and Python versions 3.6/3.7.
 
 
-
 <a name="source"></a>
+### Build from Source and Contributing
 
-### Build from Source and Contributing 
+Please see our [guide for building cuGraph from source](SOURCEBUILD.md)</pr>
 
-Please see our [guide for building and contributing to cuGraph](CONTRIBUTING.md).
+Please see our [guide for contributing to cuGraph](CONTRIBUTING.md).
 
 
 
 ## Documentation
-
 Python API documentation can be generated from [docs](docs) directory.
 
 
 
-
-
-
-
 ------
-
-
 
 ## <div align="left"><img src="img/rapids_logo.png" width="265px"/></div> Open GPU Data Science
 

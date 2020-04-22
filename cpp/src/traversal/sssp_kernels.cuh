@@ -22,7 +22,8 @@
 #include <utilities/sm_utils.h>
 #include "utilities/error_utils.h"
 #include "traversal_common.cuh"
-
+namespace cugraph {
+namespace detail {
 namespace sssp_kernels {
 
 // This is the second pass after relax_edges that sets the active frontier
@@ -44,6 +45,7 @@ __global__ void populate_frontier_and_preds(
     const int* relaxed_edges_bmap,
     const int* isolated_bmap,
     DistType* distances,
+    DistType* next_distances,
     IndexType* predecessors,
     const int* edge_mask) {
   // BlockScan
@@ -207,8 +209,7 @@ __global__ void populate_frontier_and_preds(
             // Check if this edge was relaxed in relax_edges earlier
             if (was_edge_relaxed) {
               IndexType dst_id = col_ind[edge];
-              DistType* dst_addr = &distances[dst_id];
-              DistType dst_val = *dst_addr;
+              DistType dst_val = next_distances[dst_id];
               DistType expected_val = distances[src_id] + edge_weights[edge];
 
               if (expected_val == dst_val) {
@@ -309,6 +310,7 @@ __global__ void relax_edges(
     const IndexType* frontier_degrees_exclusive_sum_buckets_offsets,
     int* relaxed_edges_bmap,
     DistType* distances,
+    DistType* next_distances,
     const int* edge_mask) {
   __shared__ IndexType
       shared_buckets_offsets[TOP_DOWN_EXPAND_DIMX - NBUCKETS_PER_BLOCK + 1];
@@ -457,8 +459,8 @@ __global__ void relax_edges(
 
             // Try to relax non-masked edges
             if (!edge_mask || edge_mask[edge]) {
-              DistType* old_addr = &distances[dst_id];
-              DistType old_val = *old_addr;
+              DistType* update_addr = &next_distances[dst_id];
+              DistType old_val = distances[dst_id];
               DistType new_val = distances[src_id] + edge_weights[edge];
               if (new_val < old_val) {
                 // This edge can be relaxed
@@ -473,7 +475,7 @@ __global__ void relax_edges(
                 // OPTION2
                 // Try to relax with atomicmin directly. Easier, but may have
                 // worse performance
-                old_val = traversal::atomicMin(old_addr, new_val);
+                old_val = traversal::atomicMin(update_addr, new_val);
 
                 if (old_val > new_val) {
                   // OPTION1:
@@ -529,6 +531,7 @@ void frontier_expand(
     const IndexType* frontier_degrees_exclusive_sum,
     const IndexType* frontier_degrees_exclusive_sum_buckets_offsets,
     DistType* distances,
+    DistType* next_distances,
     IndexType* predecessors,
     const int* edge_mask,
     int* next_frontier_bmap,
@@ -562,6 +565,7 @@ void frontier_expand(
       frontier_degrees_exclusive_sum_buckets_offsets,
       relaxed_edges_bmap,
       distances,
+      next_distances,
       edge_mask);
 
   // Revisit relaxed edges and update the next frontier and preds
@@ -581,9 +585,10 @@ void frontier_expand(
       relaxed_edges_bmap,
       isolated_bmap,
       distances,
+      next_distances,
       predecessors,
       edge_mask);
 
-  cudaCheckError();
+  CUDA_CHECK_LAST();
 }
-}
+} } } //namespace

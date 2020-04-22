@@ -15,42 +15,10 @@
  */
 #pragma once
 
-#include "algo_types.h"
+#include <cudf/cudf.h>
+#include "types.h"
 
-/**
- * @Synopsis   Find the PageRank vertex values for a graph. cuGraph computes an approximation of the Pagerank eigenvector using the power method.
- * The number of iterations depends on the properties of the network itself; it increases when the tolerance descreases and/or alpha increases toward the limiting value of 1.
- * The user is free to use default values or to provide inputs for the initial guess, tolerance and maximum number of iterations.
- *
- * @Param[in] graph                  cuGRAPH graph descriptor, should contain the connectivity information as an edge list (edge weights are not used for this algorithm).
- *                                   The transposed adjacency list will be computed if not already present.
- * @Param[in] alpha                  The damping factor alpha represents the probability to follow an outgoing edge, standard value is 0.85.
- Thus, 1.0-alpha is the probability to “teleport” to a random vertex. Alpha should be greater than 0.0 and strictly lower than 1.0.
- * @Param[in] has_guess              This parameter is used to notify cuGRAPH if it should use a user-provided initial guess. False means the user doesn't have a guess, in this case cuGRAPH will use a uniform vector set to 1/V.
- *                                   If the value is True, cuGRAPH will read the pagerank parameter and use this as an initial guess.
- *                                   The initial guess must not be the vector of 0s. Any value other than 1 or 0 is treated as an invalid value.
- * @Param[in] pagerank (optional)    Initial guess if has_guess=true
- * @Param[in] personalization_subset (optional) Vertices for running personalized page rank
- * @Param[in] personalization_values (optional) Values associated with personalization_subset vertices
- * @Param[in] tolerance              Set the tolerance the approximation, this parameter should be a small magnitude value.
- *                                   The lower the tolerance the better the approximation. If this value is 0.0f, cuGRAPH will use the default value which is 1.0E-6.
- *                                   Setting too small a tolerance can lead to non-convergence due to numerical roundoff. Usually values between 0.01 and 0.00001 are acceptable.
- * @Param[in] max_iter               The maximum number of iterations before an answer is returned. This can be used to limit the execution time and do an early exit before the solver reaches the convergence tolerance.
- *                                   If this value is lower or equal to 0 cuGRAPH will use the default value, which is 500.
- *
- * @Param[out] *pagerank             The PageRank : pagerank[i] is the PageRank of vertex i.
- *
- * @Returns                          GDF_SUCCESS upon successful completion.
- */
-/* ----------------------------------------------------------------------------*/
-gdf_error gdf_pagerank(gdf_graph *graph,
-                       gdf_column *pagerank,
-                       gdf_column *personalization_subset,
-                       gdf_column *personalization_values,
-                       float alpha,
-                       float tolerance,
-                       int max_iter,
-                       bool has_guess);
+namespace cugraph {
 
 /**
  * @Synopsis   Creates source, destination and value columns based on the specified R-MAT model
@@ -80,119 +48,43 @@ gdf_error gdf_pagerank(gdf_graph *graph,
  *
  * @Param[out] *val                  Columns containing the edge weights
  *
- * @Returns                          GDF_SUCCESS upon successful completion.
+ * @throws     cugraph::logic_error when an error occurs.
  */
 /* ----------------------------------------------------------------------------*/
-gdf_error gdf_grmat_gen(const char* argv,
-                        size_t &vertices,
-                        size_t &edges,
-                        gdf_column* src,
-                        gdf_column* dest,
-                        gdf_column* val);
+void grmat_gen(const char* argv,
+               size_t &vertices,
+               size_t &edges,
+               gdf_column* src,
+               gdf_column* dest,
+               gdf_column* val);
+
+void louvain(Graph* graph,
+             void *final_modularity,
+             void *num_level,
+             void *louvain_parts,
+             int max_iter = 100);
 
 /**
- * @Synopsis   Performs a breadth first search traversal of a graph starting from a vertex.
- *
- * @Param[in] *graph                 cuGRAPH graph descriptor with a valid edgeList or adjList
- *
- * @Param[out] *distances            If set to a valid column, this is populated by distance of every vertex in the graph from the starting vertex
- *
- * @Param[out] *predecessors         If set to a valid column, this is populated by bfs traversal predecessor of every vertex
- *
- * @Param[in] start_vertex           The starting vertex for breadth first search traversal
- *
- * @Param[in] directed               Treat the input graph as directed
- *
- * @Returns                          GDF_SUCCESS upon successful completion.
+ * @brief Computes the ecg clustering of the given graph.
+ * ECG runs truncated Louvain on an ensemble of permutations of the input graph,
+ * then uses the ensemble partitions to determine weights for the input graph.
+ * The final result is found by running full Louvain on the input graph using
+ * the determined weights. See https://arxiv.org/abs/1809.05578 for further
+ * information.
+ * @throws `cudf::logic_error` if graph is null.
+ * @throws `cudf::logic_error` if ecg_parts is null.
+ * @throws `cudf::logic_error` if graph does not have an adjacency list.
+ * @throws `cudf::logic_error` if graph does not have edge weights.
+ * @param graph The input graph
+ * @param min_weight The minimum weight parameter
+ * @param ensemble_size The ensemble size parameter
+ * @param ecg_parts A pointer to a gdf_column which has allocated memory for the resulting partition identifiers.
  */
-/* ----------------------------------------------------------------------------*/
-gdf_error gdf_bfs(gdf_graph *graph,
-                  gdf_column *distances,
-                  gdf_column *predecessors,
-                  int start_vertex,
-                  bool directed);
-/**                                                                             
- * @Synopsis   Performs a single source shortest path traversal of a graph starting from a vertex.
- *                                                                              
- * @Param[in] *graph                 cuGRAPH graph descriptor with a valid edgeList or adjList
- *                                                                              
- * @Param[out] *distances            If set to a valid column, this is populated by distance of every vertex in the graph from the starting vertex
- *                                                                              
- * @Param[out] *predecessors         If set to a valid column, this is populated by the sssp predecessor of every vertex
- *                                                                              
- * @Param[in] start_vertex           The starting vertex for SSSP               
- *                                                                              
- * @Returns                          GDF_SUCCESS upon successful completion.    
- */                                                                             
-/* ----------------------------------------------------------------------------*/
-gdf_error gdf_sssp(gdf_graph *graph,                                            
-        		gdf_column *distances,                                                  
-        		gdf_column *predecessors,                                               
-          		const int source_vertex);                                               
-/**
- * Computes the Jaccard similarity coefficient for every pair of vertices in the graph
- * which are connected by an edge.
- * @param graph The input graph object
- * @param weights The input vertex weights for weighted Jaccard, may be NULL for
- * unweighted Jaccard.
- * @param result The result values are stored here, memory needs to be pre-allocated
- * @return Error code
- */
-gdf_error gdf_jaccard(gdf_graph *graph,
-                      gdf_column *weights,
-                      gdf_column *result);
-
-/**
- * Computes the Jaccard similarity coefficient for each pair of specified vertices.
- * Vertices are specified as pairs where pair[n] = (first[n], second[n])
- * @param graph The input graph object
- * @param weights The input vertex weights for weighted Jaccard, may be NULL for
- * unweighted Jaccard.
- * @param first A column containing the first vertex ID of each pair.
- * @param second A column containing the second vertex ID of each pair.
- * @param result The result values are stored here, memory needs to be pre-allocated.
- * @return Error code
- */
-gdf_error gdf_jaccard_list(gdf_graph *graph,
-                           gdf_column *weights,
-                           gdf_column *first,
-                           gdf_column *second,
-                           gdf_column *result);
-
-/**
- * Computes the Overlap Coefficient for every pair of vertices in the graph which are
- * connected by an edge.
- * @param graph The input graph object
- * @param weights The input vertex weights for weighted overlap, may be NULL for
- * unweighted.
- * @param result The result values are stored here, memory needs to be pre-allocated.
- * @return Error code
- */
-gdf_error gdf_overlap(gdf_graph *graph,
-                      gdf_column *weights,
-                      gdf_column *result);
-
-/**
- * Computes the overlap coefficient for each pair of specified vertices.
- * Vertices are specified as pairs where pair[n] = (first[n], second[n])
- * @param graph The input graph object.
- * @param weights The input vertex weights for weighted overlap, may be NULL for
- * unweighted.
- * @param first A column containing the first vertex Ids of each pair
- * @param second A column containing the second vertex Ids of each pair
- * @param result The result values are stored here, memory needs to be pre-allocated
- * @return Error code
- */
-gdf_error gdf_overlap_list(gdf_graph *graph,
-                           gdf_column *weights,
-                           gdf_column *first,
-                           gdf_column *second,
-                           gdf_column *result);
-
-gdf_error gdf_louvain(gdf_graph *graph,
-                      void *final_modularity,
-                      void *num_level,
-                      gdf_column *louvain_parts);
+template<typename IdxT, typename ValT>
+void ecg(Graph* graph,
+         ValT min_weight,
+         size_t ensemble_size,
+         IdxT *ecg_parts);
 
 /**
  * Computes the in-degree, out-degree, or the sum of both (determined by x) for the given graph. This is
@@ -202,13 +94,13 @@ gdf_error gdf_louvain(gdf_graph *graph,
  * @param off The local partition offsets
  * @param ind The local partition indices
  * @param x_cols The results (located on each GPU)
- * @return Error code
+ * @throws     cugraph::logic_error when an error occurs.
  */
-gdf_error gdf_snmg_degree(int x,
-                          size_t* part_offsets,
-                          gdf_column* off,
-                          gdf_column* ind,
-                          gdf_column** x_cols);
+void snmg_degree(int x,
+                 size_t* part_offsets,
+                 gdf_column* off,
+                 gdf_column* ind,
+                 gdf_column** x_cols);
 
 /**
  * Converts the input edge list (partitioned and loaded onto the GPUs) into a partitioned csr representation.
@@ -221,32 +113,36 @@ gdf_error gdf_snmg_degree(int x,
  * @param csrOff The local partition's CSR Offsets (output)
  * @param csrInd The local partition's CSR Indices (output)
  * @param csrVal The local partition's CSR Values (output)
- * @return Error code
+ * @throws     cugraph::logic_error when an error occurs.
  */
-gdf_error gdf_snmg_coo2csr(size_t* part_offsets,
-                           bool free_input,
-                           void** comm1,
-                           gdf_column* cooRow,
-                           gdf_column* cooCol,
-                           gdf_column* cooVal,
-                           gdf_column* csrOff,
-                           gdf_column* csrInd,
-                           gdf_column* csrVal);
-/**
- * @brief Compute connected components.
- * The weak version was imported from cuML.
- * This implementation comes from [1] and solves component labeling problem in
- * parallel on CSR-indexes based upon the vertex degree and adjacency graph.
- *
- * [1] Hawick, K.A et al, 2010. "Parallel graph component labelling with GPUs and CUDA"
- *
+void snmg_coo2csr(size_t* part_offsets,
+                  bool free_input,
+                  void** comm1,
+                  gdf_column* cooRow,
+                  gdf_column* cooCol,
+                  gdf_column* cooVal,
+                  gdf_column* csrOff,
+                  gdf_column* csrInd,
+                  gdf_column* csrVal);
 
- * @param graph input graph; assumed undirected for weakly CC [in]
- * @param connectivity_type CUGRAPH_WEAK, CUGRAPH_STRONG  [in]
- * @param labels gdf_column for the output labels [out]
+ /**
+Find the PageRank vertex values for a graph. cuGraph computes an approximation of the Pagerank eigenvector using the power method.
+ * @param[in] src_col_ptrs      Array of size n_gpu containing pointers to gdf columns. The column src_col_ptrs[i] contains the index of the source for each edge on GPU i. Indices must be in the range [0, V-1], where V is the global number of vertices.
+ * @param[in] dest_col_ptrs     Array of size n_gpu containing pointers to gdf columns. The column dest_col_ptrs[i] contains the index of the destination for each edge on GPU i. Indices must be in the range [0, V-1], where V is the global number of vertices.
+ * @param[out] pr_col_ptrs      Array of size n_gpu containing pointers to gdf columns. The column pr_col_ptrs[i] contains a copy of the full pagerank result on GPU i.
+ * @Param[in] alpha             The damping factor alpha represents the probability to follow an outgoing edge, standard value is 0.85.
+ *                              Thus, 1.0-alpha is the probability to “teleport” to a random vertex. Alpha should be greater than 0.0 and strictly lower than 1.0.
+ * @param[in] n_gpus            The number of GPUs. This function will launch n_gpus threads and set devices [0, n_gpu-1]. 
+ * @Param[in] n_iter            The number of iterations before an answer is returned. This must be greater than 0. It is recommended to run between 10 and 100 iterations.  
+ *                              The number of iterations should vary depending on the properties of the network itself and the desired approximation quality; it should be increased when alpha increases toward the limiting value of 1.
+
+ * @throws     cugraph::logic_error when an error occurs.
  */
- gdf_error gdf_connected_components(gdf_graph *graph,
-                                    cugraph_cc_t connectivity_type,
-                                    gdf_column *labels);
-gdf_error gdf_multi_pagerank (const size_t global_v, gdf_column *src_ptrs, gdf_column *dest_ptrs, gdf_column *pr, const float damping_factor, const int max_iter);
+void snmg_pagerank (gdf_column **src_col_ptrs, 
+                    gdf_column **dest_col_ptrs, 
+                    gdf_column *pr_col_ptrs, 
+                    const size_t n_gpus, 
+                    const float damping_factor, 
+                    const int n_iter);
 
+} //namespace cugraph

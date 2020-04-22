@@ -20,12 +20,15 @@
 #include <rmm_utils.h>
 #include <algorithm>
 
+#include "graph.hpp"
+
 #include "traversal_common.cuh"
 #include "sssp.cuh"
 #include "sssp_kernels.cuh"
 #include "utilities/error_utils.h"
 
 namespace cugraph {
+namespace detail {
 
 template <typename IndexType, typename DistType>
 void SSSP<IndexType, DistType>::setup() {
@@ -115,12 +118,16 @@ void SSSP<IndexType, DistType>::configure(DistType* _distances,
   // We need distances for SSSP even if the caller doesn't need them
   if (!computeDistances)
     ALLOC_TRY(&distances, n * sizeof(DistType), nullptr);
+  // Need next_distances in either case
+  ALLOC_TRY(&next_distances, n * sizeof(DistType), nullptr);
 }
 
 template <typename IndexType, typename DistType>
-gdf_error SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
+void SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
   // Init distances to infinities
   traversal::fill_vec(distances, n, traversal::vec_t<DistType>::max, stream);
+  traversal::fill_vec(
+      next_distances, n, traversal::vec_t<DistType>::max, stream);
 
   // If needed, set all predecessors to non-existent (-1)
   if (computePredecessors) {
@@ -132,6 +139,7 @@ gdf_error SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
   //
 
   cudaMemsetAsync(&distances[source_vertex], 0, sizeof(DistType), stream);
+  cudaMemsetAsync(&next_distances[source_vertex], 0, sizeof(DistType), stream);
 
   int current_isolated_bmap_source_vert = 0;
 
@@ -148,7 +156,7 @@ gdf_error SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
   // If source is isolated (zero outdegree), we are done
   if ((m & current_isolated_bmap_source_vert)) {
     // Init distances and predecessors are done; stream is synchronized
-    return GDF_SUCCESS;
+
   }
 
   // Adding source_vertex to init frontier
@@ -207,6 +215,7 @@ gdf_error SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
         exclusive_sum_frontier_vertex_degree,
         exclusive_sum_frontier_vertex_buckets_offsets,
         distances,
+        next_distances,
         predecessors,
         edge_mask,
         next_frontier_bmap,
@@ -220,7 +229,14 @@ gdf_error SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
                     cudaMemcpyDeviceToHost,
                     stream);
 
-    cudaCheckError();
+    // Copy next_distances to distances
+    cudaMemcpyAsync(distances,
+                    next_distances,
+                    n * sizeof(DistType),
+                    cudaMemcpyDeviceToDevice,
+                    stream);
+
+    CUDA_CHECK_LAST();
 
     // We need nf for the loop
     cudaStreamSynchronize(stream);
@@ -233,12 +249,9 @@ gdf_error SSSP<IndexType, DistType>::traverse(IndexType source_vertex) {
 
     if (iters > n) {
       // Bail out. Got a graph with a negative cycle
-      std::cerr << "ERROR: Max iterations exceeded. Check the graph for "
-                   "negative weight cycles\n";
-      return GDF_INVALID_API_CALL;
+      CUGRAPH_FAIL("ERROR: Max iterations exceeded. Check the graph for negative weight cycles");
     }
   }
-  return GDF_SUCCESS;
 }
 
 template <typename IndexType, typename DistType>
@@ -257,9 +270,12 @@ void SSSP<IndexType, DistType>::clean() {
   // Distances were working data
   if (!computeDistances)
     ALLOC_FREE_TRY(distances, nullptr);
+
+  // next_distances were working data
+  ALLOC_FREE_TRY(next_distances, nullptr);
 }
 
-}  // end namespace cugraph
+} //namespace
 
 /**
  * ---------------------------------------------------------------------------*
@@ -267,57 +283,32 @@ void SSSP<IndexType, DistType>::clean() {
  *
  * @file sssp.cu
  * --------------------------------------------------------------------------*/
+template <typename VT, typename ET, typename WT>
+void sssp(experimental::GraphCSR<VT,ET,WT> const &graph,
+          WT *distances,
+          VT *predecessors,
+          const VT source_vertex) {
 
-gdf_error gdf_sssp(gdf_graph* gdf_G,
-                   gdf_column* sssp_distances,
-                   gdf_column* predecessors,
-                   const int source_vert) {
-  GDF_REQUIRE(gdf_G, GDF_INVALID_API_CALL);
-  GDF_REQUIRE(gdf_G->adjList || gdf_G->edgeList, GDF_INVALID_API_CALL);
-  GDF_REQUIRE(source_vert >= 0, GDF_INVALID_API_CALL);
+  CUGRAPH_EXPECTS(distances || predecessors, "Invalid API parameter, both outputs are nullptr");
 
-  void *sssp_dist_ptr, *pred_ptr;
-  // NOTE: gdf_column struct doesn't have a default constructor. So we can get
-  // garbage values for member fields. Right now, it's the caller's
-  // responsibility to ensure that the fields are initialised if the gdf_column
-  // ptr is not null
-  sssp_dist_ptr = (sssp_distances && sssp_distances->size)
-      ? sssp_distances->data
-      : nullptr;
-  pred_ptr =
-      (predecessors && predecessors->size) ? predecessors->data : nullptr;
+  if (typeid(VT) != typeid(int))
+    CUGRAPH_FAIL("Unsupported vertex id data type, please use int");
+  if (typeid(ET) != typeid(int))
+    CUGRAPH_FAIL("Unsupported edge id data type, please use int");
+  if (typeid(WT) != typeid(float) && typeid(WT) != typeid(double))
+    CUGRAPH_FAIL("Unsupported weight data type, please use float or double");
 
-  GDF_REQUIRE(sssp_dist_ptr || pred_ptr, GDF_INVALID_API_CALL);
+  int num_vertices = graph.number_of_vertices;
+  int num_edges = graph.number_of_edges;
 
-  if (sssp_dist_ptr) {
-    GDF_REQUIRE(!sssp_distances->valid, GDF_VALIDITY_UNSUPPORTED);
-    // Integral types are possible, but we don't want to deal with overflow
-    // conditions right now
-    GDF_REQUIRE(sssp_distances->dtype == GDF_FLOAT32 ||
-                    sssp_distances->dtype == GDF_FLOAT64,
-                GDF_INVALID_API_CALL);
-  }
 
-  gdf_error err = gdf_add_adj_list(gdf_G);
-  if (err != GDF_SUCCESS)
-    return err;
+  const ET* offsets_ptr = graph.offsets;
+  const VT* indices_ptr = graph.indices;
+  const WT* edge_weights_ptr = nullptr;
 
-  GDF_REQUIRE(gdf_G->adjList->offsets->dtype == GDF_INT32,
-              GDF_UNSUPPORTED_DTYPE);
-  GDF_REQUIRE(gdf_G->adjList->indices->dtype == GDF_INT32,
-              GDF_UNSUPPORTED_DTYPE);
-  GDF_REQUIRE(source_vert < gdf_G->adjList->offsets->size - 1,
-              GDF_INVALID_API_CALL);
-
-  if (pred_ptr)
-    GDF_REQUIRE(predecessors->dtype == gdf_G->adjList->indices->dtype,
-                GDF_UNSUPPORTED_DTYPE);
-
-  if (sssp_dist_ptr)
-    GDF_REQUIRE(gdf_G->adjList->offsets->size - 1 <= sssp_distances->size,
-                GDF_INVALID_API_CALL);
-
-  if (!gdf_G->adjList->edge_data) {
+  // Both if / else branch operate own calls due to
+  // thrust::device_vector lifetime
+  if (!graph.edge_data) {
     // Generate unit weights
 
     // TODO: This should fallback to BFS, but for now it'll go through the
@@ -326,96 +317,28 @@ gdf_error gdf_sssp(gdf_graph* gdf_G,
     // BFS also does only integer distances right now whereas we need float or
     // double
 
-    void* d_edge_data;
-    gdf_G->adjList->edge_data = new gdf_column;
-    cudaStream_t stream{nullptr};
-
-    // If distances array is given and is double, generate the weights in
-    // double
-    if (sssp_dist_ptr && sssp_distances->dtype == GDF_FLOAT64) {
-      std::vector<double> h_edge_data(gdf_G->adjList->indices->size, 1.0);
-      size_t edge_data_size = sizeof(double) * h_edge_data.size();
-      ALLOC_TRY((void**)&d_edge_data, edge_data_size, stream);
-      CUDA_TRY(cudaMemcpy(d_edge_data,
-                          &h_edge_data[0],
-                          edge_data_size,
-                          cudaMemcpyHostToDevice));
-      gdf_column_view(gdf_G->adjList->edge_data,
-                      d_edge_data,
-                      nullptr,
-                      gdf_G->adjList->indices->size,
-                      GDF_FLOAT64);
-
-    } else {
-      // Else generate float
-      std::vector<float> h_edge_data(gdf_G->adjList->indices->size, 1.0);
-      size_t edge_data_size = sizeof(float) * h_edge_data.size();
-      ALLOC_TRY((void**)&d_edge_data, edge_data_size, stream);
-      CUDA_TRY(cudaMemcpy(d_edge_data,
-                          &h_edge_data[0],
-                          edge_data_size,
-                          cudaMemcpyHostToDevice));
-      gdf_column_view(gdf_G->adjList->edge_data,
-                      d_edge_data,
-                      nullptr,
-                      gdf_G->adjList->indices->size,
-                      GDF_FLOAT32);
-    }
+    thrust::device_vector<WT> d_edge_weights(num_edges, static_cast<WT>(1));
+    edge_weights_ptr = thrust::raw_pointer_cast(&d_edge_weights.front());
+    cugraph::detail::SSSP<VT, WT> sssp(num_vertices, num_edges, offsets_ptr,
+                                       indices_ptr, edge_weights_ptr);
+    sssp.configure(distances, predecessors, nullptr);
+    sssp.traverse(source_vertex);
   } else {
-    // Got weighted graph
-    GDF_REQUIRE(
-        gdf_G->adjList->edge_data->size == gdf_G->adjList->indices->size,
-        GDF_INVALID_API_CALL);
-
-    GDF_REQUIRE(gdf_G->adjList->edge_data->dtype == GDF_FLOAT32 ||
-                    gdf_G->adjList->edge_data->dtype == GDF_FLOAT64,
-                GDF_INVALID_API_CALL);
-
-    if (sssp_dist_ptr)
-      GDF_REQUIRE(gdf_G->adjList->edge_data->dtype == sssp_distances->dtype,
-                  GDF_UNSUPPORTED_DTYPE);
-
     // SSSP is not defined for graphs with negative weight cycles
     // Warn user about any negative edges
-    if (gdf_G->prop && gdf_G->prop->has_negative_edges == GDF_PROP_TRUE)
+    if (graph.prop.has_negative_edges == experimental::PropType::PROP_TRUE)
       std::cerr << "WARN: The graph has negative weight edges. SSSP will not "
                    "converge if the graph has negative weight cycles\n";
+    edge_weights_ptr = graph.edge_data;
+    cugraph::detail::SSSP<VT, WT> sssp(num_vertices, num_edges, offsets_ptr,
+                                       indices_ptr, edge_weights_ptr);
+    sssp.configure(distances, predecessors, nullptr);
+    sssp.traverse(source_vertex);
   }
-
-  int n = gdf_G->adjList->offsets->size - 1;
-  int e = gdf_G->adjList->indices->size;
-  int* offsets_ptr = (int*)gdf_G->adjList->offsets->data;
-  int* indices_ptr = (int*)gdf_G->adjList->indices->data;
-
-  void* edge_weights_ptr = static_cast<void*>(gdf_G->adjList->edge_data->data);
-  gdf_error ret;
-
-  if (gdf_G->adjList->edge_data->dtype == GDF_FLOAT32) {
-    cugraph::SSSP<int, float> sssp(
-        n, e, offsets_ptr, indices_ptr, static_cast<float*>(edge_weights_ptr));
-
-    sssp.configure(static_cast<float*>(sssp_dist_ptr),
-                   static_cast<int*>(pred_ptr),
-                   nullptr);
-
-    ret = sssp.traverse(source_vert);
-  } else if (gdf_G->adjList->edge_data->dtype == GDF_FLOAT64) {
-    cugraph::SSSP<int, double> sssp(n,
-                                    e,
-                                    offsets_ptr,
-                                    indices_ptr,
-                                    static_cast<double*>(edge_weights_ptr));
-
-    sssp.configure(static_cast<double*>(sssp_dist_ptr),
-                   static_cast<int*>(pred_ptr),
-                   nullptr);
-
-    ret = sssp.traverse(source_vert);
-  } else {
-    GDF_REQUIRE(gdf_G->adjList->edge_data->dtype == GDF_FLOAT32 ||
-                    gdf_G->adjList->edge_data->dtype == GDF_FLOAT64,
-                GDF_INVALID_API_CALL);
-  }
-
-  return ret;
 }
+
+// explicit instantiation
+template void sssp<int, int, float>(experimental::GraphCSR<int, int, float> const &graph, float *distances, int *predecessors, const int source_vertex);
+template void sssp<int, int, double>(experimental::GraphCSR<int, int, double> const &graph, double *distances, int *predecessors, const int source_vertex);
+
+} //namespace

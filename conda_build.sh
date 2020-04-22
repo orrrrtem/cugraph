@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 set -xe
 
-CUDA_REL=${CUDA:0:3}
-if [ "${CUDA:0:2}" == '10' ]; then
-# CUDA 10 release
-CUDA_REL=${CUDA:0:4}
-fi
+CUDA_REL=${CUDA_VERSION%.*}
 
 conda install conda-build anaconda-client conda-verify -y
 conda build -c nvidia -c rapidsai -c rapidsai-nightly/label/cuda${CUDA_REL} -c conda-forge -c defaults --python=${PYTHON} conda/recipes/cugraph
@@ -17,9 +13,9 @@ if [ "$UPLOAD_PACKAGE" == '1' ]; then
     test -e ${UPLOADFILE}
 
 
-    LABEL_OPTION="--label dev --label cuda${CUDA_REL}"
+    LABEL_OPTION="--label dev"
     if [ "${LABEL_MAIN}" == '1' ]; then
-    LABEL_OPTION="--label main --label cuda${CUDA_REL}"
+    LABEL_OPTION="--label main"
     fi
     echo "LABEL_OPTION=${LABEL_OPTION}"
 

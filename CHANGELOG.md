@@ -1,3 +1,229 @@
+# cuGraph 0.14.0 (Date TBD)
+
+## New Features
+- PR #822 Added new functions in python graph class, similar to networkx
+
+## Improvements
+- PR #764 Updated sssp and bfs with GraphCSR, removed gdf_column, added nullptr weights test for sssp
+- PR #765 Remove gdf_column from connected components
+- PR #780 Remove gdf_column from cuhornet features
+- PR #781 Fix compiler argument syntax for ccache
+- PR #782 Use Cython's `new_build_ext` (if available)
+- PR #788 Added options and config file to enable codecov
+- PR #793 Fix legacy cudf imports/cimports
+- PR #802 Removed use of gdf_column from db code
+- PR #798 Edit return graph type in algorithms return graphs
+- PR #803 Enable Ninja build
+- PR #804 Cythonize in parallel
+- PR #807 Updating the Python docs
+- PR #820 OPG infra and all-gather smoke test
+- PR #829 Updated README and CONTRIBUTIOIN docs
+
+## Bug Fixes
+- PR #763 Update RAPIDS conda dependencies to v0.14
+- PR #795 Fix some documentation
+- PR #800 Fix bfs error in optimization path
+- PR #825 Fix outdated CONTRIBUTING.md
+- PR #827 Fix indexing CI errors due to cudf updates 
+
+# cuGraph 0.13.0 (Date TBD)
+
+## New Features
+- PR #736 cuHornet KTruss integration
+- PR #735 Integration gunrock's betweenness centrality
+- PR #760 cuHornet Weighted KTruss
+
+## Improvements
+- PR #688 Cleanup datasets after testing on gpuCI
+- PR #694 Replace the expensive cudaGetDeviceProperties call in triangle counting with cheaper cudaDeviceGetAttribute calls
+- PR #701 Add option to filter datasets and tests when run from CI
+- PR #715 Added new YML file for CUDA 10.2
+- PR #719 Updated docs to remove CUDA 9.2 and add CUDA 10.2
+- PR #720 Updated error messages
+- PR #722 Refactor graph to remove gdf_column
+- PR #723 Added notebook testing to gpuCI gpu build
+- PR #734 Updated view_edge_list for Graph, added unrenumbering test, fixed column access issues
+- PR #738 Move tests directory up a level
+- PR #739 Updated Notebooks
+- PR #740 added utility to extract paths from SSSP/BFS results
+- PR #742 Rremove gdf column from jaccard
+- PR #741 Added documentation for running and adding new benchmarks and shell script to automate
+- PR #747 updated viewing of graph, datatypecasting and two hop neighbor unrenumbering for multi column
+- PR #766 benchmark script improvements/refactorings: separate ETL steps, averaging, cleanup
+
+## Bug Fixes
+- PR #697 Updated versions in conda environments.
+- PR #692 Add check after opening golden result files in C++ Katz Centrality tests.
+- PR #702 Add libcypher include path to target_include_directories
+- PR #716 Fixed bug due to disappearing get_column_data_ptr function in cudf
+- PR #726 Fixed SSSP notebook issues in last cell
+- PR #728 Temporary fix for dask attribute error issue
+- PR #733 Fixed multi-column renumbering issues with indexes
+- PR #746 Dask + Distributed 2.12.0+
+- PR #753 ECG Error
+- PR #758 Fix for graph comparison failure
+- PR #761 Added flag to not treat deprecation warnings as errors, for now
+- PR #771 Added unrenumbering in wcc and scc. Updated tests to compare vertices of largest component
+- PR #774 Raise TypeError if a DiGraph is used with spectral*Clustering()
+
+# cuGraph 0.12.0 (04 Feb 2020)
+
+## New Features
+- PR #628 Add (Di)Graph constructor from Multi(Di)Graph
+- PR #630 Added ECG clustering
+- PR #636 Added Multi-column renumbering support
+
+## Improvements
+- PR #640 remove gdf_column in sssp
+- PR #629 get rid of gdf_column in pagerank
+- PR #641 Add codeowners
+- PR #646 Skipping all tests in test_bfs_bsp.py since SG BFS is not formally supported
+- PR #652 Remove gdf_column in BFS
+- PR #660 enable auto renumbering
+- PR #664 Added support for Louvain early termination.
+- PR #667 Drop `cython` from run requirements in conda recipe
+- PR #666 Incorporate multicolumn renumbering in python graph class for Multi(Di)Graph
+- PR #685 Avoid deep copy in index reset
+
+## Bug Fixes
+- PR #634 renumber vertex ids passed in analytics
+- PR #649 Change variable names in wjaccard and woverlap to avoid exception
+- PR #651 fix cudf error in katz wrapper and test nstart
+- PR #663 Replaced use of cudf._lib.gdf_dtype_from_value based on cudf refactoring
+- PR #670 Use cudf pandas version
+- PR #672 fix snmg pagerank based on cudf Buffer changes
+- PR #681 fix column length mismatch cudf issue
+- PR #684 Deprecated cudf calls
+- PR #686 Balanced cut fix
+- PR #689 Check graph input type, disable Multi(Di)Graph, add cugraph.from_cudf_edgelist
+
+
+# cuGraph 0.11.0 (11 Dec 2019)
+
+## New Features
+- PR #588 Python graph class and related changes
+- PR #630 Adds ECG clustering functionality
+
+## Improvements
+- PR #569 Added exceptions
+- PR #554 Upgraded namespace so that cugraph can be used for the API.
+- PR #564 Update cudf type aliases
+- PR #562 Remove pyarrow dependency so we inherit the one cudf uses
+- PR #576 Remove adj list conversion automation from c++
+- PR #587 API upgrade
+- PR #585 Remove BUILD_ABI references from CI scripts
+- PR #591 Adding initial GPU metrics to benchmark utils
+- PR #599 Pregel BFS
+- PR #601 add test for type conversion, edit createGraph_nvgraph
+- PR #614 Remove unused CUDA conda labels
+- PR #616 Remove c_ prefix
+- PR #618 Updated Docs
+- PR #619 Transition guide
+
+## Bug Fixes
+- PR #570 Temporarily disabling 2 DB tests
+- PR #573 Fix pagerank test and symmetrize for cudf 0.11
+- PR #574 dev env update
+- PR #580 Changed hardcoded test output file to a generated tempfile file name
+- PR #595 Updates to use the new RMM Python reinitialize() API
+- PR #625 use destination instead of target when adding edgelist
+
+# cuGraph 0.10.0 (16 Oct 2019)
+
+
+## New Features
+- PR #469 Symmetrize a COO
+- PR #477 Add cuHornet as a submodule
+- PR #483 Katz Centrality
+- PR #524 Integrated libcypher-parser conda package into project.
+- PR #493 Added C++ findMatches operator for OpenCypher query.
+- PR #527 Add testing with asymmetric graph (where appropriate)
+- PR #520 KCore and CoreNumber
+- PR #496 Gunrock submodule + SM prelimis.
+- PR #575 Added updated benchmark files that use new func wrapper pattern and asvdb
+
+## Improvements
+- PR #466 Add file splitting test; Update to reduce dask overhead
+- PR #468 Remove unnecessary print statement
+- PR #464 Limit initial RMM pool allocator size to 128mb so pytest can run in parallel
+- PR #474 Add csv file writing, lazy compute - snmg pagerank
+- PR #481 Run bfs on unweighted graphs when calling sssp
+- PR #491 Use YYMMDD tag in nightly build
+- PR #487 Add woverlap test, add namespace in snmg COO2CSR
+- PR #531 Use new rmm python package
+
+## Bug Fixes
+- PR #458 Fix potential race condition in SSSP
+- PR #471 Remove nvidia driver installation from ci/cpu/build.sh
+- PR #473 Re-sync cugraph with cudf (cudf renamed the bindings directory to _lib).
+- PR #480 Fixed DASK CI build script
+- PR #478 Remove requirements and setup for pi
+- PR #495 Fixed cuhornet and cmake for Turing cards
+- PR #489 Handle negative vertex ids in renumber
+- PR #519 Removed deprecated cusparse calls
+- PR #522 Added the conda dev env file for 10.1
+- PR #525 Update build scripts and YYMMDD tagging for nightly builds
+- PR #548 Added missing cores documentation
+- PR #556 Fixed recursive remote options for submodules
+- PR #559 Added RMM init check so RMM free APIs are not called if not initialized
+
+
+# cuGraph 0.9.0 (21 Aug 2019)
+
+## New Features
+- PR #361 Prototypes for cusort functions
+- PR #357 Pagerank cpp API
+- PR #366 Adds graph.degrees() function returning both in and out degree.
+- PR #380 First implemention of cusort - SNMG key/value sorting
+- PR #416 OpenCypher: Added C++ implementation of db_object class and assorted other classes
+- PR #411 Integrate dask-cugraph in cugraph
+- PR #411 Integrate dask-cugraph in cugraph #411
+- PR #418 Update cusort to handle SNMG key-only sorting
+- PR #423 Add Strongly Connected Components (GEMM); Weakly CC updates;
+- PR #437 Streamline CUDA_REL environment variable
+- PR #449 Fix local build generated file ownerships
+- PR #454 Initial version of updated script to run benchmarks
+
+
+## Improvements
+- PR #353 Change snmg python wrapper in accordance to cpp api
+- PR #362 Restructured python/cython directories and files.
+- PR #365 Updates for setting device and vertex ids for snmg pagerank
+- PR #383 Exposed MG pagerank solver parameters
+- PR #399 Example Prototype of Strongly Connected Components using primitives
+- PR #419 Version test
+- PR #420 drop duplicates, remove print, compute/wait read_csv in pagerank.py
+- PR #439 More efficient computation of number of vertices from edge list
+- PR #445 Update view_edge_list, view_adj_list, and view_transposed_adj_list to return edge weights.
+- PR #450 Add a multi-GPU section in cuGraph documentation.
+
+## Bug Fixes
+- PR #368 Bump cudf dependency versions for cugraph conda packages
+- PR #354 Fixed bug in building a debug version
+- PR #360 Fixed bug in snmg coo2csr causing intermittent test failures.
+- PR #364 Fixed bug building or installing cugraph when conda isn't installed
+- PR #375 Added a function to initialize gdf columns in cugraph #375
+- PR #378 cugraph was unable to import device_of_gpu_pointer
+- PR #384 Fixed bug in snmg coo2csr causing error in dask-cugraph tests.
+- PR #382 Disabled vertex id check to allow Azure deployment
+- PR #410 Fixed overflow error in SNMG COO2CSR
+- PR #395 run omp_ge_num_threads in a parallel context
+- PR #412 Fixed formatting issues in cuGraph documentation.
+- PR #413 Updated python build instructions.
+- PR #414 Add weights to wjaccrd.py
+- PR #436 Fix Skip Test Functionality
+- PR #438 Fix versions of packages in build script and conda yml
+- PR #441 Import cudf_cpp.pxd instead of duplicating cudf definitions.
+- PR #441 Removed redundant definitions of python dictionaries and functions.
+- PR #442 Updated versions in conda environments.
+- PR #442 Added except + to cython bindings to C(++) functions.
+- PR #443 Fix accuracy loss issue for snmg pagerank
+- PR #444 Fix warnings in strongly connected components
+- PR #446 Fix permission for source (-x) and script (+x) files.
+- PR #448 Import filter_unreachable
+- PR #453 Re-sync cugraph with cudf (dependencies, type conversion & scatter functions).
+- PR #463 Remove numba dependency and use the one from cudf
+
 # cuGraph 0.8.0 (27 June 2019)
 
 ## New Features
@@ -22,8 +248,7 @@
 - PR #306 Integrated nvgraph to libcugraph.so (libnvgraph_rapids.so will not be built anymore).
 - PR #306 Updated python test files to run pytest with all four RMM configurations.
 - PR #321 Added check routines for input graph data vertex IDs and offsets (cugraph currently supports only 32-bit integers).
-- PR #333 Various general improvements at the library level 
-
+- PR #333 Various general improvements at the library level
 
 ## Bug Fixes
 - PR #283 Automerge fix

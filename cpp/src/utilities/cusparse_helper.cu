@@ -17,8 +17,8 @@
 #include "rmm_utils.h"
 #include "cusparse_helper.h"
 
-namespace cugraph
-{
+namespace cugraph { 
+namespace detail {
 cusparseHandle_t Cusparse::m_handle = 0;
 
 template <typename ValueType>
@@ -30,8 +30,8 @@ CusparseCsrMV<ValueType>::CusparseCsrMV() {
   CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
   CHECK_CUSPARSE(cusparseSetMatIndexBase(descrA,CUSPARSE_INDEX_BASE_ZERO));
   CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL ));
-  //alg = CUSPARSE_ALG_NAIVE;
-  alg = CUSPARSE_ALG_MERGE_PATH;
+  //alg = CUSPARSE_ALG_MERGE_PATH;
+  alg = CUSPARSE_ALG_NAIVE;
   stream = nullptr;
 }
 
@@ -114,4 +114,4 @@ void CusparseCsrMV<ValueType>::run(int m,
 template class CusparseCsrMV<double>;
 template class CusparseCsrMV<float>;
 
-} //namespace
+} } //namespace
